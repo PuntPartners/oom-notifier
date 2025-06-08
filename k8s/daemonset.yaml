@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: oom-notifier
+  namespace: kube-system
+  labels:
+    app: oom-notifier
+spec:
+  selector:
+    matchLabels:
+      app: oom-notifier
+  template:
+    metadata:
+      labels:
+        app: oom-notifier
+    spec:
+      serviceAccountName: oom-notifier
+      hostPID: true
+      containers:
+      - name: oom-notifier
+        image: oom-notifier-go:latest
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+          readOnlyRootFilesystem: true
+        env:
+        - name: LOGGING_LEVEL
+          value: "info"
+        args:
+        - --slack-webhook
+        - "$(SLACK_WEBHOOK_URL)"
+        - --slack-channel
+        - "$(SLACK_CHANNEL)"
+        - --process-refresh
+        - "5"
+        - --kernel-log-refresh
+        - "10"
+        envFrom:
+        - secretRef:
+            name: oom-notifier-config
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        volumeMounts:
+        - name: kmsg
+          mountPath: /dev/kmsg
+          readOnly: true
+        - name: proc
+          mountPath: /proc
+          readOnly: true
+      volumes:
+      - name: kmsg
+        hostPath:
+          path: /dev/kmsg
+          type: CharDevice
+      - name: proc
+        hostPath:
+          path: /proc
+          type: Directory
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      - effect: NoExecute
+        operator: Exists
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oom-notifier
+  namespace: kube-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: oom-notifier-config
+  namespace: kube-system
+type: Opaque
+stringData:
+  SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  SLACK_CHANNEL: "#oom-alerts"

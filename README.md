@@ -18,7 +18,6 @@ A lightweight daemon to monitor Linux OOM (Out of Memory) killer events and send
 ## Building from Source
 
 ```bash
-cd go/
 go mod download
 go build -o oom-notifier ./cmd/oom-notifier
 ```
@@ -27,7 +26,6 @@ go build -o oom-notifier ./cmd/oom-notifier
 
 Build the Docker image:
 ```bash
-cd go/
 docker build -t oom-notifier-go .
 ```
 
@@ -77,7 +75,7 @@ data:
   slack-channel: "#oom-alerts"
 ```
 
-2. Deploy the DaemonSet (see `k8s/daemonset.yaml` in the parent directory for reference)
+2. Deploy the DaemonSet (see `k8s/daemonset.yaml` for a complete example)
 
 ## Architecture
 
