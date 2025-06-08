@@ -1,6 +1,6 @@
 # OOM Notifier (Go Version)
 
-A lightweight daemon to monitor Linux OOM (Out of Memory) killer events and send notifications to Slack. This is a Go implementation of the original Rust-based oom-notifier, simplified to support only Slack notifications.
+A lightweight daemon to monitor Linux OOM (Out of Memory) killer events and send notifications to Slack. This is a Go implementation inspired by the [original Rust-based oom-notifier](https://github.com/angelopoerio/oom-notifier), simplified to support only Slack notifications.
 
 ## Features
 
@@ -97,4 +97,4 @@ This Go implementation:
 
 ## License
 
-Same as the original project.
+Licensed under the Apache License, Version 2.0 - see [https://www.apache.org/licenses/LICENSE-2.0](https://www.apache.org/licenses/LICENSE-2.0) for details.
