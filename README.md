@@ -19,7 +19,7 @@ A lightweight daemon to monitor Linux OOM (Out of Memory) killer events and send
 
 ```bash
 go mod download
-go build -o oom-notifier ./cmd/oom-notifier
+go build -o ./oom-notifier ./cmd/oom-notifier
 ```
 
 ## Running with Docker

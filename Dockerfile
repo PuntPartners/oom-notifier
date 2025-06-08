@@ -16,7 +16,7 @@ RUN go mod download
 COPY . .
 
 # Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o oom-notifier ./cmd/oom-notifier
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /app/oom-notifier ./cmd/oom-notifier
 
 # Final stage
 FROM alpine:3.19
