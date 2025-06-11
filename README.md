@@ -2,6 +2,9 @@
 
 A lightweight daemon to monitor Linux OOM (Out of Memory) killer events and send notifications to Slack. This is a Go implementation inspired by the [original Rust-based oom-notifier](https://github.com/angelopoerio/oom-notifier), simplified to support only Slack notifications.
 
+## Reference
+For reference visit: https://gallery.ecr.aws/r3x5s3v3/oom-notifier
+
 ## Features
 
 - Monitors `/dev/kmsg` for OOM killer events
