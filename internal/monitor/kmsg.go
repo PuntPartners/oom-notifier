@@ -138,13 +138,13 @@ type OOMMonitor struct {
 	refreshInterval  time.Duration
 }
 
-func NewOOMMonitor(checkInterval, refreshInterval time.Duration) (*OOMMonitor, error) {
+func NewOOMMonitor(procDir string, checkInterval, refreshInterval time.Duration) (*OOMMonitor, error) {
 	kmsgReader, err := NewKmsgReader()
 	if err != nil {
 		return nil, err
 	}
 
-	processCache, err := NewProcessCache()
+	processCache, err := NewProcessCache(procDir)
 	if err != nil {
 		kmsgReader.Close()
 		return nil, err

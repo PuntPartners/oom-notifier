@@ -20,9 +20,10 @@ type ProcessInfo struct {
 type ProcessCache struct {
 	cache *lru.Cache[int, string]
 	mu    sync.RWMutex
+	procDir string
 }
 
-func NewProcessCache() (*ProcessCache, error) {
+func NewProcessCache(procDir string) (*ProcessCache, error) {
 	// Get system's pid_max
 	pidMax := getPIDMax()
 	
@@ -33,6 +34,7 @@ func NewProcessCache() (*ProcessCache, error) {
 
 	pc := &ProcessCache{
 		cache: cache,
+		procDir: procDir,
 	}
 
 	// Initial population
@@ -44,7 +46,7 @@ func NewProcessCache() (*ProcessCache, error) {
 }
 
 func (pc *ProcessCache) Refresh() error {
-	processes, err := getAllProcesses()
+	processes, err := getAllProcesses(pc.procDir)
 	if err != nil {
 		return err
 	}
@@ -70,8 +72,7 @@ func (pc *ProcessCache) GetCommandLine(pid int) string {
 	return cmdline
 }
 
-func getAllProcesses() ([]ProcessInfo, error) {
-	procDir := "/proc"
+func getAllProcesses(procDir string) ([]ProcessInfo, error) {
 	entries, err := os.ReadDir(procDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read /proc: %v", err)
@@ -90,7 +91,7 @@ func getAllProcesses() ([]ProcessInfo, error) {
 			continue // Not a PID directory
 		}
 
-		cmdline := getProcessCmdline(pid)
+		cmdline := getProcessCmdline(pid, procDir)
 		if cmdline != "" {
 			processes = append(processes, ProcessInfo{
 				PID:     pid,
@@ -102,8 +103,8 @@ func getAllProcesses() ([]ProcessInfo, error) {
 	return processes, nil
 }
 
-func getProcessCmdline(pid int) string {
-	cmdlinePath := filepath.Join("/proc", strconv.Itoa(pid), "cmdline")
+func getProcessCmdline(pid int, procDir string) string {
+	cmdlinePath := filepath.Join(procDir, strconv.Itoa(pid), "cmdline")
 	data, err := ioutil.ReadFile(cmdlinePath)
 	if err != nil {
 		return ""
@@ -115,7 +116,7 @@ func getProcessCmdline(pid int) string {
 	
 	if cmdline == "" {
 		// Try to get process name from comm file
-		commPath := filepath.Join("/proc", strconv.Itoa(pid), "comm")
+		commPath := filepath.Join(procDir, strconv.Itoa(pid), "comm")
 		commData, err := ioutil.ReadFile(commPath)
 		if err == nil {
 			cmdline = fmt.Sprintf("[%s]", strings.TrimSpace(string(commData)))

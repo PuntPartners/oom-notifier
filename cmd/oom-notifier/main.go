@@ -18,6 +18,7 @@ var (
 	slackChannel    string
 	processRefresh  int
 	kernelLogRefresh int
+	procDir         string
 )
 
 func init() {
@@ -25,6 +26,7 @@ func init() {
 	flag.StringVar(&slackChannel, "slack-channel", "#alerts", "Slack channel to send notifications")
 	flag.IntVar(&processRefresh, "process-refresh", 5, "Process cache refresh interval in seconds")
 	flag.IntVar(&kernelLogRefresh, "kernel-log-refresh", 10, "Kernel log check interval in seconds")
+	flag.StringVar(&procDir, "proc-dir", "/proc", "Path to proc directory")
 }
 
 func main() {
@@ -49,6 +51,7 @@ func main() {
 
 	// Create OOM monitor
 	oomMonitor, err := monitor.NewOOMMonitor(
+		procDir,
 		time.Duration(kernelLogRefresh)*time.Second,
 		time.Duration(processRefresh)*time.Second,
 	)
