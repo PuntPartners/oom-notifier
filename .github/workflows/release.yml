@@ -117,4 +117,5 @@ jobs:
             ./artifacts/oom-notifier-linux-amd64/oom-notifier-linux-amd64
             ./artifacts/oom-notifier-linux-arm64/oom-notifier-linux-arm64
           generate_release_notes: true
-          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
