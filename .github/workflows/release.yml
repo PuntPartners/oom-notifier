@@ -3,45 +3,118 @@ name: Build and Push to ECR
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 env:
   AWS_REGION: us-east-1
 
 jobs:
+  build-binaries:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          # Extract version from tag (remove 'v' prefix if present)
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build binary
+        run: |
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-s -w" -o oom-notifier-${{ matrix.suffix }} ./cmd/oom-notifier
+
+      - name: Upload binary as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oom-notifier-${{ matrix.suffix }}
+          path: oom-notifier-${{ matrix.suffix }}
+
   build-and-push:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-    - name: Login to Amazon ECR Public
-      id: login-ecr-public
-      uses: aws-actions/amazon-ecr-login@v2
-      with:
-        registry-type: public
+      - name: Login to Amazon ECR Public
+        id: login-ecr-public
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
 
-    - name: Extract metadata
-      id: meta
-      run: |
-        # Extract version from tag (remove 'v' prefix if present)
-        VERSION=${GITHUB_REF#refs/tags/}
-        VERSION=${VERSION#v}
-        echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-        echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      - name: Extract metadata
+        id: meta
+        run: |
+          # Extract version from tag (remove 'v' prefix if present)
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-    - name: Build Docker image
-      run: |
-        docker build -t ${{ secrets.REPO_NAME }}:${{ steps.meta.outputs.VERSION }} .
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ secrets.REPO_NAME }}:${{ steps.meta.outputs.VERSION }} .
 
-    - name: Push to ECR Public
-      run: |
-        docker push ${{ secrets.REPO_NAME }}:${{ steps.meta.outputs.VERSION }}
+      - name: Push to ECR Public
+        run: |
+          docker push ${{ secrets.REPO_NAME }}:${{ steps.meta.outputs.VERSION }}
+
+  create-release:
+    needs: [build-binaries, build-and-push]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          # Extract version from tag (remove 'v' prefix if present)
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Create or Update Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.meta.outputs.TAG_NAME }}
+          name: Release ${{ steps.meta.outputs.TAG_NAME }}
+          files: |
+            ./artifacts/oom-notifier-linux-amd64/oom-notifier-linux-amd64
+            ./artifacts/oom-notifier-linux-arm64/oom-notifier-linux-arm64
+          generate_release_notes: true
+          make_latest: true
