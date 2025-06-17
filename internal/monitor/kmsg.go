@@ -17,6 +17,8 @@ type KmsgReader struct {
 	oomPattern     *regexp.Regexp
 	pidPattern     *regexp.Regexp
 	lastTimestamp  uint64
+	entryBuffer    chan KmsgEntry
+	done           chan struct{}
 }
 
 type KmsgEntry struct {
@@ -34,54 +36,68 @@ func NewKmsgReader() (*KmsgReader, error) {
 	}
 
 	reader := &KmsgReader{
-		file:       file,
-		scanner:    bufio.NewScanner(file),
-		oomPattern: regexp.MustCompile(`(?i)out of memory:`),
-		pidPattern: regexp.MustCompile(`\bkilled process (\d+)\b`),
+		file:        file,
+		scanner:     bufio.NewScanner(file),
+		oomPattern:  regexp.MustCompile(`(?i)out of memory:`),
+		pidPattern:  regexp.MustCompile(`\bkilled process (\d+)\b`),
+		entryBuffer: make(chan KmsgEntry, 100),
+		done:        make(chan struct{}),
 	}
 
-	// Skip old messages by seeking to the end
-	log.Printf("[DEBUG] Seeking to end of /dev/kmsg to skip old messages")
-	if _, err := file.Seek(0, 2); err != nil {
-		file.Close()
-		return nil, fmt.Errorf("failed to seek to end of kmsg: %v", err)
-	}
+	// Start background goroutine to read kmsg
+	go reader.readLoop()
 
 	log.Printf("[DEBUG] KmsgReader initialized successfully")
 	return reader, nil
 }
 
 func (k *KmsgReader) Close() error {
+	close(k.done)
 	return k.file.Close()
+}
+
+func (k *KmsgReader) readLoop() {
+	log.Printf("[DEBUG] Starting kmsg read loop")
+	for {
+		select {
+		case <-k.done:
+			log.Printf("[DEBUG] Stopping kmsg read loop")
+			return
+		default:
+			if k.scanner.Scan() {
+				line := k.scanner.Text()
+				entry, err := k.parseKmsgLine(line)
+				if err != nil {
+					log.Printf("[DEBUG] Failed to parse kmsg line: %v", err)
+					continue
+				}
+
+				select {
+				case k.entryBuffer <- *entry:
+				case <-k.done:
+					return
+				}
+			}
+		}
+	}
 }
 
 func (k *KmsgReader) ReadEntries() ([]KmsgEntry, error) {
 	var entries []KmsgEntry
-	lineCount := 0
-
-	for k.scanner.Scan() {
-		line := k.scanner.Text()
-		lineCount++
-		entry, err := k.parseKmsgLine(line)
-		if err != nil {
-			log.Printf("[DEBUG] Failed to parse kmsg line: %v", err)
-			continue
-		}
-
-		if entry.Timestamp > k.lastTimestamp {
-			entries = append(entries, *entry)
-			k.lastTimestamp = entry.Timestamp
+	
+	// Drain available entries from buffer
+	for {
+		select {
+		case entry := <-k.entryBuffer:
+			entries = append(entries, entry)
+		default:
+			// No more entries available
+			if len(entries) > 0 {
+				log.Printf("[DEBUG] Retrieved %d entries from buffer", len(entries))
+			}
+			return entries, nil
 		}
 	}
-
-	if err := k.scanner.Err(); err != nil {
-		return entries, fmt.Errorf("error reading kmsg: %v", err)
-	}
-
-	if lineCount > 0 {
-		log.Printf("[DEBUG] Read %d lines from kmsg, found %d valid entries", lineCount, len(entries))
-	}
-	return entries, nil
 }
 
 func (k *KmsgReader) parseKmsgLine(line string) (*KmsgEntry, error) {
