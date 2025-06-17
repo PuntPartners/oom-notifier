@@ -3,7 +3,6 @@ package monitor
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,6 +10,7 @@ import (
 	"sync"
 
 	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/oom-notifier/go/internal/logger"
 )
 
 type ProcessInfo struct {
@@ -27,7 +27,7 @@ type ProcessCache struct {
 func NewProcessCache(procDir string) (*ProcessCache, error) {
 	// Get system's pid_max
 	pidMax := getPIDMax()
-	log.Printf("[DEBUG] Creating ProcessCache with pid_max=%d, procDir=%s", pidMax, procDir)
+	logger.Debug("Creating ProcessCache with pid_max=%d, procDir=%s", pidMax, procDir)
 
 	cache, err := lru.New[int, string](pidMax)
 	if err != nil {
@@ -40,7 +40,7 @@ func NewProcessCache(procDir string) (*ProcessCache, error) {
 	}
 
 	// Initial population
-	log.Printf("[DEBUG] Starting initial process cache population")
+	logger.Debug("Starting initial process cache population")
 	if err := pc.Refresh(); err != nil {
 		return nil, fmt.Errorf("failed to populate process cache: %v", err)
 	}
@@ -49,10 +49,10 @@ func NewProcessCache(procDir string) (*ProcessCache, error) {
 }
 
 func (pc *ProcessCache) Refresh() error {
-	log.Printf("[DEBUG] Starting process cache refresh")
+	logger.Debug("Starting process cache refresh")
 	processes, err := getAllProcesses(pc.procDir)
 	if err != nil {
-		log.Printf("[ERROR] Failed to get processes: %v", err)
+		logger.Error("Failed to get processes: %v", err)
 		return err
 	}
 
@@ -63,7 +63,7 @@ func (pc *ProcessCache) Refresh() error {
 		pc.cache.Add(proc.PID, proc.Cmdline)
 	}
 
-	log.Printf("[DEBUG] Process cache refreshed with %d processes", len(processes))
+	logger.Debug("Process cache refreshed with %d processes", len(processes))
 	return nil
 }
 
@@ -73,11 +73,11 @@ func (pc *ProcessCache) GetCommandLine(pid int) string {
 
 	cmdline, found := pc.cache.Get(pid)
 	if !found {
-		log.Printf("[DEBUG] Process PID %d not found in cache", pid)
+		logger.Debug("Process PID %d not found in cache", pid)
 		return ""
 	}
 
-	log.Printf("[DEBUG] Found process PID %d: %s", pid, cmdline)
+	logger.Debug("Found process PID %d: %s", pid, cmdline)
 	return cmdline
 }
 
@@ -111,7 +111,7 @@ func getAllProcesses(procDir string) ([]ProcessInfo, error) {
 		}
 	}
 
-	log.Printf("[DEBUG] Found %d valid processes in %s", processCount, procDir)
+	logger.Debug("Found %d valid processes in %s", processCount, procDir)
 	return processes, nil
 }
 

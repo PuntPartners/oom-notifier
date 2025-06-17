@@ -3,12 +3,13 @@ package monitor
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/oom-notifier/go/internal/logger"
 )
 
 type KmsgReader struct {
@@ -29,7 +30,7 @@ type KmsgEntry struct {
 }
 
 func NewKmsgReader() (*KmsgReader, error) {
-	log.Printf("[DEBUG] Opening /dev/kmsg for reading")
+	logger.Debug("Opening /dev/kmsg for reading")
 	file, err := os.Open("/dev/kmsg")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open /dev/kmsg: %v", err)
@@ -47,7 +48,7 @@ func NewKmsgReader() (*KmsgReader, error) {
 	// Start background goroutine to read kmsg
 	go reader.readLoop()
 
-	log.Printf("[DEBUG] KmsgReader initialized successfully")
+	logger.Debug("KmsgReader initialized successfully")
 	return reader, nil
 }
 
@@ -57,18 +58,18 @@ func (k *KmsgReader) Close() error {
 }
 
 func (k *KmsgReader) readLoop() {
-	log.Printf("[DEBUG] Starting kmsg read loop")
+	logger.Debug("Starting kmsg read loop")
 	for {
 		select {
 		case <-k.done:
-			log.Printf("[DEBUG] Stopping kmsg read loop")
+			logger.Debug("Stopping kmsg read loop")
 			return
 		default:
 			if k.scanner.Scan() {
 				line := k.scanner.Text()
 				entry, err := k.parseKmsgLine(line)
 				if err != nil {
-					log.Printf("[DEBUG] Failed to parse kmsg line: %v", err)
+					logger.Debug("Failed to parse kmsg line: %v", err)
 					continue
 				}
 
@@ -93,7 +94,7 @@ func (k *KmsgReader) ReadEntries() ([]KmsgEntry, error) {
 		default:
 			// No more entries available
 			if len(entries) > 0 {
-				log.Printf("[DEBUG] Retrieved %d entries from buffer", len(entries))
+				logger.Debug("Retrieved %d entries from buffer", len(entries))
 			}
 			return entries, nil
 		}
@@ -140,7 +141,7 @@ func (k *KmsgReader) parseKmsgLine(line string) (*KmsgEntry, error) {
 func (k *KmsgReader) IsOOMMessage(entry KmsgEntry) bool {
 	isOOM := k.oomPattern.MatchString(entry.Message)
 	if isOOM {
-		log.Printf("[DEBUG] Detected OOM message: %s", entry.Message)
+		logger.Debug("Detected OOM message: %s", entry.Message)
 	}
 	return isOOM
 }
@@ -148,7 +149,7 @@ func (k *KmsgReader) IsOOMMessage(entry KmsgEntry) bool {
 func (k *KmsgReader) ExtractPID(message string) (int, error) {
 	matches := k.pidPattern.FindStringSubmatch(strings.ToLower(message))
 	if len(matches) < 2 {
-		log.Printf("[DEBUG] No PID pattern found in message: %s", message)
+		logger.Debug("No PID pattern found in message: %s", message)
 		return 0, fmt.Errorf("no PID found in OOM message")
 	}
 
@@ -157,7 +158,7 @@ func (k *KmsgReader) ExtractPID(message string) (int, error) {
 		return 0, fmt.Errorf("failed to parse PID: %v", err)
 	}
 
-	log.Printf("[DEBUG] Extracted PID %d from OOM message", pid)
+	logger.Debug("Extracted PID %d from OOM message", pid)
 	return pid, nil
 }
 
@@ -185,14 +186,14 @@ func NewOOMMonitor(procDir string, checkInterval, refreshInterval time.Duration)
 	// Get boot time to convert kmsg timestamps (which are since boot) to Unix epoch
 	bootTime, err := getBootTime()
 	if err != nil {
-		log.Printf("[WARN] Failed to get boot time, using current time as baseline: %v", err)
+		logger.Warn("Failed to get boot time, using current time as baseline: %v", err)
 		bootTime = time.Now()
 	}
-	log.Printf("[DEBUG] System boot time: %s", bootTime.Format("2006-01-02 15:04:05"))
+	logger.Debug("System boot time: %s", bootTime.Format("2006-01-02 15:04:05"))
 
 	// Store startup time as microseconds since boot (same as kmsg timestamps)
 	startupTimestamp := uint64(time.Since(bootTime).Microseconds())
-	log.Printf("[DEBUG] OOMMonitor startup timestamp (since boot): %d microseconds", startupTimestamp)
+	logger.Debug("OOMMonitor startup timestamp (since boot): %d microseconds", startupTimestamp)
 
 	return &OOMMonitor{
 		kmsgReader:       kmsgReader,
@@ -209,7 +210,7 @@ func (m *OOMMonitor) Close() error {
 }
 
 func (m *OOMMonitor) Start(eventChan chan<- OOMEventData) error {
-	log.Printf("[DEBUG] Starting OOM monitor with check interval: %v, refresh interval: %v", m.checkInterval, m.refreshInterval)
+	logger.Debug("Starting OOM monitor with check interval: %v, refresh interval: %v", m.checkInterval, m.refreshInterval)
 
 	// Start process cache refresh routine
 	go m.refreshProcessCache()
@@ -218,34 +219,34 @@ func (m *OOMMonitor) Start(eventChan chan<- OOMEventData) error {
 	ticker := time.NewTicker(m.checkInterval)
 	defer ticker.Stop()
 
-	log.Printf("[DEBUG] Starting kernel message monitoring loop")
+	logger.Debug("Starting kernel message monitoring loop")
 	for range ticker.C {
-		log.Printf("[DEBUG] Checking for new kernel messages")
+		logger.Debug("Checking for new kernel messages")
 		entries, err := m.kmsgReader.ReadEntries()
 		if err != nil {
-			log.Printf("[ERROR] Error reading kmsg entries: %v", err)
+			logger.Error("Error reading kmsg entries: %v", err)
 			continue
 		}
 
 		for _, entry := range entries {
 			if m.kmsgReader.IsOOMMessage(entry) {
-				log.Printf("[INFO] OOM message detected! Processing...")
+				logger.Info("OOM message detected! Processing...")
 
 				// Filter out events that occurred before process startup
 				if entry.Timestamp < m.startupTimestamp {
-					log.Printf("[DEBUG] Skipping OOM event from before startup: timestamp=%d, startup=%d",
+					logger.Debug("Skipping OOM event from before startup: timestamp=%d, startup=%d",
 						entry.Timestamp, m.startupTimestamp)
 					continue
 				}
 
 				pid, err := m.kmsgReader.ExtractPID(entry.Message)
 				if err != nil {
-					log.Printf("[ERROR] Failed to extract PID from OOM message: %v", err)
+					logger.Error("Failed to extract PID from OOM message: %v", err)
 					continue
 				}
 
 				event := m.createOOMEvent(pid, entry.Timestamp)
-				log.Printf("[INFO] Sending OOM event: PID=%d, Process=%s, Timestamp=%d",
+				logger.Info("Sending OOM event: PID=%d, Process=%s, Timestamp=%d",
 					pid, event.Cmdline, entry.Timestamp)
 				eventChan <- event
 			}
@@ -261,17 +262,17 @@ func (m *OOMMonitor) refreshProcessCache() {
 
 	for range ticker.C {
 		if err := m.processCache.Refresh(); err != nil {
-			log.Printf("Failed to refresh process cache: %v", err)
+			logger.Error("Failed to refresh process cache: %v", err)
 		}
 	}
 }
 
 func (m *OOMMonitor) createOOMEvent(pid int, timestamp uint64) OOMEventData {
-	log.Printf("[DEBUG] Creating OOM event for PID %d", pid)
+	logger.Debug("Creating OOM event for PID %d", pid)
 	cmdline := m.processCache.GetCommandLine(pid)
 	if cmdline == "" {
 		cmdline = fmt.Sprintf("<unknown process %d>", pid)
-		log.Printf("[DEBUG] Process not found in cache, using fallback name: %s", cmdline)
+		logger.Debug("Process not found in cache, using fallback name: %s", cmdline)
 	}
 
 	hostname, _ := os.Hostname()
@@ -288,7 +289,7 @@ func (m *OOMMonitor) createOOMEvent(pid int, timestamp uint64) OOMEventData {
 		Time:     eventTimeMillis,
 	}
 
-	log.Printf("[DEBUG] Created OOM event: %+v (kernel timestamp: %d, converted time: %s)",
+	logger.Debug("Created OOM event: %+v (kernel timestamp: %d, converted time: %s)",
 		event, timestamp, eventTime.Format("2006-01-02 15:04:05"))
 	return event
 }
