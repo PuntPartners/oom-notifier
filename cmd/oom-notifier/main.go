@@ -44,29 +44,36 @@ func main() {
 	if logLevel == "" {
 		logLevel = "info"
 	}
-	log.Printf("Starting oom-notifier with log level: %s", logLevel)
+	log.Printf("[INFO] Starting oom-notifier with log level: %s", logLevel)
+	log.Printf("[DEBUG] Configuration: slack-webhook=%s, slack-channel=%s, process-refresh=%ds, kernel-log-refresh=%ds, proc-dir=%s", 
+		slackWebhook, slackChannel, processRefresh, kernelLogRefresh, procDir)
 
 	// Create Slack notifier
+	log.Printf("[DEBUG] Creating Slack notifier")
 	slackNotifier := notifier.NewSlackNotifier(slackWebhook, slackChannel)
 
 	// Create OOM monitor
+	log.Printf("[DEBUG] Creating OOM monitor")
 	oomMonitor, err := monitor.NewOOMMonitor(
 		procDir,
 		time.Duration(kernelLogRefresh)*time.Second,
 		time.Duration(processRefresh)*time.Second,
 	)
 	if err != nil {
-		log.Fatalf("Failed to create OOM monitor: %v", err)
+		log.Fatalf("[ERROR] Failed to create OOM monitor: %v", err)
 	}
 	defer oomMonitor.Close()
+	log.Printf("[DEBUG] OOM monitor created successfully")
 
 	// Create event channel
+	log.Printf("[DEBUG] Creating event channel with buffer size 10")
 	eventChan := make(chan monitor.OOMEventData, 10)
 
 	// Start OOM monitor in a goroutine
+	log.Printf("[DEBUG] Starting OOM monitor goroutine")
 	go func() {
 		if err := oomMonitor.Start(eventChan); err != nil {
-			log.Fatalf("OOM monitor error: %v", err)
+			log.Fatalf("[ERROR] OOM monitor error: %v", err)
 		}
 	}()
 
@@ -75,11 +82,11 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Main event loop
-	log.Println("oom-notifier started successfully")
+	log.Printf("[INFO] oom-notifier started successfully, entering main event loop")
 	for {
 		select {
 		case event := <-eventChan:
-			log.Printf("OOM event detected: PID=%s, Command=%s", event.PID, event.Cmdline)
+			log.Printf("[INFO] OOM event received in main loop: PID=%s, Command=%s", event.PID, event.Cmdline)
 			
 			// Convert to notifier event format
 			notifierEvent := notifier.OOMEvent{
@@ -90,15 +97,16 @@ func main() {
 				Time:     event.Time,
 			}
 
+			log.Printf("[DEBUG] Sending Slack notification")
 			// Send notification
 			if err := slackNotifier.Notify(notifierEvent); err != nil {
-				log.Printf("Failed to send Slack notification: %v", err)
+				log.Printf("[ERROR] Failed to send Slack notification: %v", err)
 			} else {
-				log.Printf("Slack notification sent successfully")
+				log.Printf("[INFO] Slack notification sent successfully")
 			}
 
 		case sig := <-sigChan:
-			log.Printf("Received signal %v, shutting down...", sig)
+			log.Printf("[INFO] Received signal %v, shutting down...", sig)
 			return
 		}
 	}
