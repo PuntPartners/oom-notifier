@@ -167,6 +167,7 @@ type OOMMonitor struct {
 	checkInterval    time.Duration
 	refreshInterval  time.Duration
 	startupTimestamp uint64
+	bootTime         time.Time
 }
 
 func NewOOMMonitor(procDir string, checkInterval, refreshInterval time.Duration) (*OOMMonitor, error) {
@@ -181,9 +182,17 @@ func NewOOMMonitor(procDir string, checkInterval, refreshInterval time.Duration)
 		return nil, err
 	}
 
-	// Get current time in microseconds (same as kmsg timestamp format)
-	startupTimestamp := uint64(time.Now().UnixNano() / 1000)
-	log.Printf("[DEBUG] OOMMonitor startup timestamp: %d", startupTimestamp)
+	// Get boot time to convert kmsg timestamps (which are since boot) to Unix epoch
+	bootTime, err := getBootTime()
+	if err != nil {
+		log.Printf("[WARN] Failed to get boot time, using current time as baseline: %v", err)
+		bootTime = time.Now()
+	}
+	log.Printf("[DEBUG] System boot time: %s", bootTime.Format("2006-01-02 15:04:05"))
+
+	// Store startup time as microseconds since boot (same as kmsg timestamps)
+	startupTimestamp := uint64(time.Since(bootTime).Microseconds())
+	log.Printf("[DEBUG] OOMMonitor startup timestamp (since boot): %d microseconds", startupTimestamp)
 
 	return &OOMMonitor{
 		kmsgReader:       kmsgReader,
@@ -191,6 +200,7 @@ func NewOOMMonitor(procDir string, checkInterval, refreshInterval time.Duration)
 		checkInterval:    checkInterval,
 		refreshInterval:  refreshInterval,
 		startupTimestamp: startupTimestamp,
+		bootTime:         bootTime,
 	}, nil
 }
 
@@ -266,16 +276,45 @@ func (m *OOMMonitor) createOOMEvent(pid int, timestamp uint64) OOMEventData {
 
 	hostname, _ := os.Hostname()
 
+	// Convert kernel timestamp (microseconds since boot) to Unix epoch time (milliseconds)
+	eventTime := m.bootTime.Add(time.Duration(timestamp) * time.Microsecond)
+	eventTimeMillis := eventTime.UnixNano() / int64(time.Millisecond)
+
 	event := OOMEventData{
 		Cmdline:  cmdline,
 		PID:      strconv.Itoa(pid),
 		Hostname: hostname,
 		Kernel:   getKernelVersion(),
-		Time:     int64(timestamp / 1000), // Convert microseconds to milliseconds
+		Time:     eventTimeMillis,
 	}
 
-	log.Printf("[DEBUG] Created OOM event: %+v", event)
+	log.Printf("[DEBUG] Created OOM event: %+v (kernel timestamp: %d, converted time: %s)",
+		event, timestamp, eventTime.Format("2006-01-02 15:04:05"))
 	return event
+}
+
+func getBootTime() (time.Time, error) {
+	// Read /proc/stat to get boot time
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "btime ") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				bootTimeUnix, err := strconv.ParseInt(fields[1], 10, 64)
+				if err != nil {
+					return time.Time{}, err
+				}
+				return time.Unix(bootTimeUnix, 0), nil
+			}
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("btime not found in /proc/stat")
 }
 
 func getKernelVersion() string {
