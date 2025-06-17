@@ -12,13 +12,13 @@ import (
 )
 
 type KmsgReader struct {
-	file           *os.File
-	scanner        *bufio.Scanner
-	oomPattern     *regexp.Regexp
-	pidPattern     *regexp.Regexp
-	lastTimestamp  uint64
-	entryBuffer    chan KmsgEntry
-	done           chan struct{}
+	file          *os.File
+	scanner       *bufio.Scanner
+	oomPattern    *regexp.Regexp
+	pidPattern    *regexp.Regexp
+	lastTimestamp uint64
+	entryBuffer   chan KmsgEntry
+	done          chan struct{}
 }
 
 type KmsgEntry struct {
@@ -84,7 +84,7 @@ func (k *KmsgReader) readLoop() {
 
 func (k *KmsgReader) ReadEntries() ([]KmsgEntry, error) {
 	var entries []KmsgEntry
-	
+
 	// Drain available entries from buffer
 	for {
 		select {
@@ -166,6 +166,7 @@ type OOMMonitor struct {
 	processCache     *ProcessCache
 	checkInterval    time.Duration
 	refreshInterval  time.Duration
+	startupTimestamp uint64
 }
 
 func NewOOMMonitor(procDir string, checkInterval, refreshInterval time.Duration) (*OOMMonitor, error) {
@@ -180,11 +181,16 @@ func NewOOMMonitor(procDir string, checkInterval, refreshInterval time.Duration)
 		return nil, err
 	}
 
+	// Get current time in microseconds (same as kmsg timestamp format)
+	startupTimestamp := uint64(time.Now().UnixNano() / 1000)
+	log.Printf("[DEBUG] OOMMonitor startup timestamp: %d", startupTimestamp)
+
 	return &OOMMonitor{
-		kmsgReader:      kmsgReader,
-		processCache:    processCache,
-		checkInterval:   checkInterval,
-		refreshInterval: refreshInterval,
+		kmsgReader:       kmsgReader,
+		processCache:     processCache,
+		checkInterval:    checkInterval,
+		refreshInterval:  refreshInterval,
+		startupTimestamp: startupTimestamp,
 	}, nil
 }
 
@@ -194,7 +200,7 @@ func (m *OOMMonitor) Close() error {
 
 func (m *OOMMonitor) Start(eventChan chan<- OOMEventData) error {
 	log.Printf("[DEBUG] Starting OOM monitor with check interval: %v, refresh interval: %v", m.checkInterval, m.refreshInterval)
-	
+
 	// Start process cache refresh routine
 	go m.refreshProcessCache()
 
@@ -214,6 +220,14 @@ func (m *OOMMonitor) Start(eventChan chan<- OOMEventData) error {
 		for _, entry := range entries {
 			if m.kmsgReader.IsOOMMessage(entry) {
 				log.Printf("[INFO] OOM message detected! Processing...")
+
+				// Filter out events that occurred before process startup
+				if entry.Timestamp < m.startupTimestamp {
+					log.Printf("[DEBUG] Skipping OOM event from before startup: timestamp=%d, startup=%d",
+						entry.Timestamp, m.startupTimestamp)
+					continue
+				}
+
 				pid, err := m.kmsgReader.ExtractPID(entry.Message)
 				if err != nil {
 					log.Printf("[ERROR] Failed to extract PID from OOM message: %v", err)
@@ -221,7 +235,8 @@ func (m *OOMMonitor) Start(eventChan chan<- OOMEventData) error {
 				}
 
 				event := m.createOOMEvent(pid, entry.Timestamp)
-				log.Printf("[INFO] Sending OOM event: PID=%d, Process=%s", pid, event.Cmdline)
+				log.Printf("[INFO] Sending OOM event: PID=%d, Process=%s, Timestamp=%d",
+					pid, event.Cmdline, entry.Timestamp)
 				eventChan <- event
 			}
 		}
@@ -250,7 +265,7 @@ func (m *OOMMonitor) createOOMEvent(pid int, timestamp uint64) OOMEventData {
 	}
 
 	hostname, _ := os.Hostname()
-	
+
 	event := OOMEventData{
 		Cmdline:  cmdline,
 		PID:      strconv.Itoa(pid),
@@ -258,7 +273,7 @@ func (m *OOMMonitor) createOOMEvent(pid int, timestamp uint64) OOMEventData {
 		Kernel:   getKernelVersion(),
 		Time:     int64(timestamp / 1000), // Convert microseconds to milliseconds
 	}
-	
+
 	log.Printf("[DEBUG] Created OOM event: %+v", event)
 	return event
 }

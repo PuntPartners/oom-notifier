@@ -14,11 +14,11 @@ import (
 )
 
 var (
-	slackWebhook    string
-	slackChannel    string
-	processRefresh  int
+	slackWebhook     string
+	slackChannel     string
+	processRefresh   int
 	kernelLogRefresh int
-	procDir         string
+	procDir          string
 )
 
 func init() {
@@ -45,7 +45,7 @@ func main() {
 		logLevel = "info"
 	}
 	log.Printf("[INFO] Starting oom-notifier with log level: %s", logLevel)
-	log.Printf("[DEBUG] Configuration: slack-webhook=%s, slack-channel=%s, process-refresh=%ds, kernel-log-refresh=%ds, proc-dir=%s", 
+	log.Printf("[DEBUG] Configuration: slack-webhook=%s, slack-channel=%s, process-refresh=%ds, kernel-log-refresh=%ds, proc-dir=%s",
 		slackWebhook, slackChannel, processRefresh, kernelLogRefresh, procDir)
 
 	// Create Slack notifier
@@ -87,7 +87,7 @@ func main() {
 		select {
 		case event := <-eventChan:
 			log.Printf("[INFO] OOM event received in main loop: PID=%s, Command=%s", event.PID, event.Cmdline)
-			
+
 			// Convert to notifier event format
 			notifierEvent := notifier.OOMEvent{
 				Cmdline:  event.Cmdline,

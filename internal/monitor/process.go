@@ -19,8 +19,8 @@ type ProcessInfo struct {
 }
 
 type ProcessCache struct {
-	cache *lru.Cache[int, string]
-	mu    sync.RWMutex
+	cache   *lru.Cache[int, string]
+	mu      sync.RWMutex
 	procDir string
 }
 
@@ -28,14 +28,14 @@ func NewProcessCache(procDir string) (*ProcessCache, error) {
 	// Get system's pid_max
 	pidMax := getPIDMax()
 	log.Printf("[DEBUG] Creating ProcessCache with pid_max=%d, procDir=%s", pidMax, procDir)
-	
+
 	cache, err := lru.New[int, string](pidMax)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create LRU cache: %v", err)
 	}
 
 	pc := &ProcessCache{
-		cache: cache,
+		cache:   cache,
 		procDir: procDir,
 	}
 
@@ -125,7 +125,7 @@ func getProcessCmdline(pid int, procDir string) string {
 	// cmdline uses null bytes as separators
 	cmdline := strings.ReplaceAll(string(data), "\x00", " ")
 	cmdline = strings.TrimSpace(cmdline)
-	
+
 	if cmdline == "" {
 		// Try to get process name from comm file
 		commPath := filepath.Join(procDir, strconv.Itoa(pid), "comm")
