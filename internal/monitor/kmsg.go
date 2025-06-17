@@ -36,6 +36,12 @@ func NewKmsgReader() (*KmsgReader, error) {
 		return nil, fmt.Errorf("failed to open /dev/kmsg: %v", err)
 	}
 
+	// Seek to end to skip historical messages and only read new ones
+	logger.Debug("Seeking to end of /dev/kmsg to skip historical messages")
+	if _, err := file.Seek(0, 2); err != nil {
+		logger.Warn("Failed to seek to end of kmsg, will process historical messages: %v", err)
+	}
+
 	reader := &KmsgReader{
 		file:        file,
 		scanner:     bufio.NewScanner(file),
